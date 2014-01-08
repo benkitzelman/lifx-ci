@@ -7,12 +7,12 @@ Installation
 ============
 
 ```
-npm install
+$ npm install
 ```
 
 Usage
 =====
 
 ```
-node build_light.js
+$ node build_light.js
 ```
