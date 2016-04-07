@@ -1,101 +1,37 @@
-var https   = require('https'),
-    request = require('request'),
-    lifx    = require('lifx');
+var https      = require('https'),
+    request    = require('request'),
+    lifx       = require('lifx'),
+    Colors     = require('./colors'),
+    Queue      = require('./queue'),
+    Oscillator = require('./oscillator'),
+    Poller     = require('./poller');
 
-var INTERVAL = 5000;
+var BASE_URL = process.env.URL || 'https://MY_CI_URL.com'
+GLOBAL.currentBuildColor = Colors.PURPLE;
+GLOBAL.lastBuildColor    = Colors.PURPLE;
 
-var urls = ['http://my-jenkins-host/job/api/json'];
+// TODO: handle the auth with Jenkins - til then, log into Jenkins via web, click on
+// your profile, click configure, then click show api token.
+// auth = [user_name]:[api_token]
+GLOBAL.auth = process.env.AUTH || "my_jenkins_user_name:my_jenkins_api_token";
+GLOBAL.urls = [ BASE_URL + "/api/json" ];
 
-
-var Queue = {
-  _queue: [],
-
-  add: function(fn) {
-    var onDone = function() {
-      setTimeout(Queue.next, INTERVAL);
-    };
-
-    Queue._queue.push( fn.bind(fn, onDone) );
-  },
-
-  next: function() {
-    var fn = Queue._queue.shift();
-    if(fn) fn();
-  }
-
-};
-
-var poll = function(url) {
-  var params = requestParamsFor(url);
-  Queue.add(
-
-    function(done) {
-      var continuePolling = function() {
-        poll(url);
-        done();
-      };
-
-      console.log('\nFetching: ' + params.uri);
-      request.get(params, function(err, resp) {
-        if(err) {
-          console.log("ERROR Fetching the Job from Jenkins:", err);
-          lx.lightsColour(0x2211, 0xffff, 1000, 0, 0); // dim yellow
-          return continuePolling();
-        }
-
-        handle(JSON.parse(resp.body), continuePolling);
-      });
-    }
-
-  );
-};
-
-var handle = function(data, done) {
-  var latest = data.builds[0];
-  if(!latest) return done();
-
-  request.get(requestParamsFor(latest.url+'/api/json'), function(err, resp) {
-    if(err) {
-      console.log("ERROR fetching Build from Jenkins:", err);
-      return done();
-    }
-
-    build = JSON.parse(resp.body);
-    console.log("--BUILD:", build.fullDisplayName, ' Status:', build.result);
-
-    switch(build.result){
-
-      case "FAILURE":
-        lx.lightsColour(0x0000, 0xffff, 1000, 0, 0); // dim red
-        break;
-
-      case "SUCCESS":
-        lx.lightsColour(0x3311, 0xffff, 1000, 0, 0); // dim green
-        break;
-
-      default:
-        lx.lightsColour(0xcc15, 0xffff, 1000, 0, 0); // dim purple
-        break;
-    };
-
-    done();
-  });
-};
-
-var requestParamsFor = function(url) {
-  return {
-    uri:  url,
-    timeout: 15000
-  };
-};
+if( jobName = process.env.JOB ) {
+  GLOBAL.urls = [ BASE_URL + '/job/' + jobName + '/api/json' ];
+}
 
 console.log('\n\nBuild light =============== \n\n');
 
-var lx = lifx.init();
+var lx    = lifx.init();
+var queue = new Queue();
+var poll  = Poller.bind( Poller, lx, queue );
+
 lx.on('bulb', function(b) {
-  console.log('found bulb', b.name);
-  urls.forEach(poll);
-  Queue.next();
+  console.log('Found bulb: ', b.name);
+
+  Oscillator.start( lx );
+  urls.forEach( poll );
+  queue.next();
 });
 
 
